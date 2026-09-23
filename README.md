@@ -19,9 +19,10 @@ MVP-сервис для организаторов мероприятий в К�
 ```bash
 python -m unittest -v test_filtering
 python demo_filtering.py --city Алматы --date 2026-09-23 --event-type свадьба --category Ведущий --budget 2000000
-```
+```     
 
 CLI возвращает весь допустимый пул для ranking, а не финальные карточки. [Контракт модулей, правила, проверенные демо и объяснение для жюри](FILTERING.md).
+
 
 ## Ранжирование и AI
 
