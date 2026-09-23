@@ -9,3 +9,4 @@ venv/
 .streamlit/secrets.toml
 *.pem
 *.key
+.cache/

@@ -23,3 +23,14 @@ python demo_filtering.py --city Алматы --date 2026-09-23 --event-type св
 ```
 
 CLI возвращает весь допустимый пул для ranking, а не финальные карточки. [Контракт модулей, правила, проверенные демо и объяснение для жюри](FILTERING.md).
+
+## Готовая часть: ранжирование и AI
+
+В ветке `Sunggat` добавлены эмбеддинги OpenAI, постоянный кэш, детерминированное ранжирование и персональные объяснения из проверенных фактов. Вход — результат фильтра `gulya`; выход — до трёх карточек и диагностика. [Подключение, ключ, формула и демо](RANKING.md).
+
+```bash
+python -m unittest discover -v
+python demo_ranking.py --offline --city Алматы --date 2026-09-23 --event-type свадьба --category Ведущий --budget 2000000 --preferences "интеллигентный юмор"
+```
+
+Для AI задайте `OPENAI_API_KEY` в окружении и замените `--offline` на `--require-ai`. UI подключает `recommendations.recommend_from_filtered`; свободное пожелание передаётся отдельно через аргумент `preferences`.
