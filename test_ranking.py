@@ -205,39 +205,39 @@ class RecommendationIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.catalog = load_contractors()
 
-    def test_top_three_selected_after_ranking_all_four_real_candidates(self):
+    def test_top_three_selected_after_ranking_all_eight_catalog_candidates(self):
         filtered = filter_contractors(self.catalog, query())
-        self.assertEqual(len(filtered["candidates"]), 4)
+        self.assertEqual(len(filtered["candidates"]), 8)
         last = filtered["candidates"][-1]
         embedder = FakeEmbeddings([last["description"]])
         result = recommend_from_filtered(filtered, preferences="Творческий ведущий",
                                         engine=RankingEngine(embedder=embedder, cache_path=None))
         self.assertEqual(len(result["cards"]), 3)
         self.assertEqual(result["cards"][0]["id"], last["id"])
-        self.assertEqual(len(embedder.calls[0]), 5)
-        self.assertEqual(result["counts"]["eligible"], 4)
+        self.assertEqual(len(embedder.calls[0]), 9)
+        self.assertEqual(result["counts"]["eligible"], 8)
         self.assertEqual(result["candidates"], filtered["candidates"])
 
     def test_real_date_change_recomputes_eligible_pool(self):
-        results = [recommend_from_filtered(filter_contractors(self.catalog, query(date=day)),
+        results = [recommend_from_filtered(filter_contractors(self.catalog, query(date=day, budget=1_000_000)),
                                           engine=offline_engine())
                    for day in ("2026-10-01", "2026-10-02")]
-        self.assertEqual({c["id"] for c in results[0]["cards"]}, {"HK-42352", "HK-44923"})
-        self.assertEqual({c["id"] for c in results[1]["cards"]}, {"HK-35215"})
+        self.assertEqual({c["id"] for c in results[0]["cards"]}, {"HK-88174", "HK-66283", "HK-49107"})
+        self.assertEqual({c["id"] for c in results[1]["cards"]}, {"HK-49107", "HK-35215"})
         for result in results:
             cards = {card["id"] for card in result["cards"]}
             self.assertTrue(cards.isdisjoint({item["id"] for item in result["excluded"]}))
 
     def test_rare_real_category_preserves_shortage_and_source_flags(self):
-        # The catalog contains just one florist in Astana.
+        # The expanded catalog contains two florists in Astana.
         florist = next(c for c in self.catalog if c["city"] == "Астана" and c["categories"] == ["Флорист"])
         day = next(f"2026-10-{number:02d}" for number in range(1, 32)
                    if f"2026-10-{number:02d}" not in florist["busy_dates"])
         filtered = filter_contractors(self.catalog, query(city="Астана", category="Флорист", date=day))
         result = recommend_from_filtered(filtered, engine=offline_engine())
-        self.assertEqual(len(result["cards"]), 1)
+        self.assertEqual(len(result["cards"]), 2)
         self.assertIn("Меньше трёх", result["message"])
-        card = result["cards"][0]
+        card = next(card for card in result["cards"] if card["id"] == florist["id"])
         self.assertTrue(card["synthetic"])
         for flag in ("synthetic", "city_imputed", "price_imputed"):
             self.assertEqual(card[flag], florist[flag])

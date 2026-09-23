@@ -157,11 +157,11 @@ class LoaderTests(unittest.TestCase):
 
     def test_real_dataset(self):
         rows = load_contractors()
-        self.assertEqual(len(rows), 66)
-        self.assertEqual(sum(r["synthetic"] for r in rows), 13)
-        self.assertEqual(sum(r["max_hours"] is None for r in rows), 9)
-        self.assertEqual(sum("Ведущий" in r["categories"] for r in rows), 15)
-        self.assertEqual(sum("Банкетный зал" in r["categories"] for r in rows), 8)
+        self.assertEqual(len(rows), 100)
+        self.assertEqual(sum(r["synthetic"] for r in rows), 47)
+        self.assertEqual(sum(r["max_hours"] is None for r in rows), 18)
+        self.assertEqual(sum("Ведущий" in r["categories"] for r in rows), 23)
+        self.assertEqual(sum("Банкетный зал" in r["categories"] for r in rows), 12)
 
     def test_quoted_multiline_and_lists(self):
         self.sample.update(description='Текст, "цитата"\nВторая строка', categories=" Флорист |Декоратор|флорист ",

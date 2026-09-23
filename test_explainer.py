@@ -120,7 +120,7 @@ class ExplanationTests(unittest.TestCase):
         self.assertIn("европейская подача", excerpts["HK-27222"])
         self.assertIn("13 лет", excerpts["HK-42352"])
         self.assertIn("Стиль ведения", excerpts["HK-72938"])
-        self.assertEqual(len(set(excerpts.values())), 4)
+        self.assertEqual(len(set(excerpts.values())), len(candidates))
 
     def test_long_excerpts_preserve_substring_and_word_boundary(self):
         description = "Веду мероприятия " * 25 + "Вокал и выступления с джазовым ансамблем " * 12
@@ -154,7 +154,8 @@ class ExplanationTests(unittest.TestCase):
         request = query(date="2026-09-23", budget=2_000_000, language=None, duration_hours=None)
         candidates = filter_contractors(load_contractors(), request)["candidates"]
         self.assertEqual({item["id"] for item in candidates},
-                         {"HK-27222", "HK-42352", "HK-44923", "HK-72938"})
+                         {"HK-17992", "HK-27222", "HK-42352", "HK-44923",
+                          "HK-72938", "HK-85392", "HK-88174", "HK-97026"})
         excerpts, explanations = [], []
         for candidate in candidates:
             excerpt = select_description_excerpt(candidate["description"])
