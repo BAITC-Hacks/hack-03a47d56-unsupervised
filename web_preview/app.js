@@ -93,6 +93,7 @@ function readRequest() {
 }
 
 function showLoading() {
+  $("ai-availability").textContent = "Подбор выполняется…";
   const box = node("div", "loading-state");
   const spinner = node("div", "spinner");
   spinner.setAttribute("aria-hidden", "true");
@@ -102,6 +103,7 @@ function showLoading() {
 }
 
 function showError(message) {
+  $("ai-availability").textContent = "Последний подбор: ошибка";
   const box = node("div", "error-state");
   box.setAttribute("role", "alert");
   const icon = node("div", "initial-icon", "!");
@@ -230,6 +232,9 @@ function renderFirstPlaceReason(result) {
   box.append(heading);
 
   const semanticLabel = result.ai?.mode === "openai" ? "Смысловое совпадение" : "Совпадение по словам";
+  const hasPreferences = Boolean(result.request?.preferences?.trim());
+  const matchTarget = hasPreferences ? "пожеланиям" : "категории и формату события";
+  const comparisonTarget = hasPreferences ? "с пожеланиями" : "с категорией и форматом события";
   const firstParts = first.score_details || {};
   if (second) {
     const secondParts = second.score_details || {};
@@ -241,14 +246,14 @@ function renderFirstPlaceReason(result) {
     if (Math.abs(Number(first.score) - Number(second.score)) < 0.000001) {
       reason = "Баллы равны; порядок определён ID профиля.";
     } else if (semanticDifference > 0 && budgetDifference > 0) {
-      reason = "Первый получил больше баллов за соответствие описания пожеланиям и за запас бюджета.";
+      reason = `Первый получил больше баллов за соответствие описания ${matchTarget} и за запас бюджета.`;
     } else if (semanticDifference > 0) {
       reason = budgetDifference < 0
-        ? "Сильнее совпадение с пожеланиями перевесило меньший запас бюджета."
-        : "Первый выше за счёт совпадения описания с пожеланиями.";
+        ? `Более сильное совпадение описания ${comparisonTarget} перевесило меньший запас бюджета.`
+        : `Первый выше за счёт совпадения описания ${comparisonTarget}.`;
     } else if (budgetDifference > 0) {
       reason = semanticDifference < 0
-        ? "Больший запас бюджета перевесил меньший балл за совпадение описания с пожеланиями."
+        ? `Больший запас бюджета перевесил меньший балл за совпадение описания ${comparisonTarget}.`
         : "Первый выше за счёт большего запаса бюджета.";
     } else {
       reason = "Порядок рассчитан по итоговому баллу из двух показателей.";
@@ -304,11 +309,13 @@ function renderFirstPlaceReason(result) {
 
 function renderResult(result) {
   const children = [renderOutcome(result)];
+  const ai = result.ai || {};
+  const mode = ai.mode === "openai" ? `Смысловое сравнение: OpenAI ${ai.model || ""}` :
+    ai.mode === "lexical" ? "Сравнение текстов по словам" : "Ранжирование не потребовалось";
+  $("ai-availability").textContent = `Последний подбор: ${ai.mode === "openai" ? "эмбеддинги OpenAI" :
+    ai.mode === "lexical" ? "сравнение по словам" : "ранжирование не потребовалось"}`;
+  children.push(node("p", "mode-note", ai.message ? `${mode}. ${ai.message}` : mode));
   if (result.status === "matched") {
-    const ai = result.ai || {};
-    const mode = ai.mode === "openai" ? `Смысловое сравнение: OpenAI ${ai.model || ""}` :
-      ai.mode === "lexical" ? "Сравнение текстов по словам" : "Ранжирование не потребовалось";
-    children.push(node("p", "mode-note", mode));
     children.push(renderFirstPlaceReason(result));
     const cards = node("div", "cards");
     for (const [index, card] of (result.cards || []).slice(0, 3).entries()) cards.append(renderCard(card, index));
@@ -320,6 +327,7 @@ function renderResult(result) {
 }
 
 async function submitRequest() {
+  validateDuration();
   if (!form.reportValidity()) return;
   if (controller) controller.abort();
   controller = new AbortController();
@@ -346,6 +354,13 @@ async function submitRequest() {
   }
 }
 
+function validateDuration() {
+  const duration = $("duration");
+  const value = duration.valueAsNumber;
+  duration.setCustomValidity(duration.value !== "" && (!Number.isFinite(value) || value <= 0)
+    ? "Укажите длительность больше нуля или оставьте поле пустым." : "");
+}
+
 async function initialize() {
   createPresets();
   form.addEventListener("submit", (event) => {
@@ -355,6 +370,7 @@ async function initialize() {
   });
   form.addEventListener("input", () => setActivePreset(-1));
   form.addEventListener("change", () => setActivePreset(-1));
+  $("duration").addEventListener("input", validateDuration);
   try {
     const response = await fetch("/api/meta");
     const meta = await response.json();
@@ -371,12 +387,13 @@ async function initialize() {
     $("date").value = start || "";
     $("budget").value = 2000000;
     $("catalog-summary").textContent = `${meta.profiles || 0} профилей · ${formatDate(start)}–${formatDate(end)}`;
-    $("ai-availability").textContent = meta.ai_available ? "OpenAI подключён" : "Новые запросы: сравнение по словам";
+    $("ai-availability").textContent = meta.ai_available
+      ? "Ключ OpenAI задан · фактический режим появится после подбора"
+      : "Ключ OpenAI не задан · доступен подбор по словам";
     $("request-fields").disabled = false;
     presetRoot.querySelectorAll("button").forEach((button) => { button.disabled = false; });
   } catch (error) {
     $("catalog-summary").textContent = "Каталог недоступен";
-    $("ai-availability").textContent = "Проверьте локальный сервер";
     showError(error instanceof TypeError ? "Не удалось соединиться с локальным сервером." : error.message);
   }
 }

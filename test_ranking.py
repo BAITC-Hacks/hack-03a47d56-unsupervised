@@ -1,5 +1,6 @@
 """Ranking and UI integration regressions; no API key or network required."""
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from threading import Barrier, Event
 import unittest
 
 from data_loader import load_contractors
@@ -64,6 +66,76 @@ def offline_engine():
 
 
 class RankingTests(unittest.TestCase):
+    def test_independent_queries_do_not_share_a_network_wait(self):
+        barrier = Barrier(2)
+
+        class ConcurrentEmbeddings(FakeEmbeddings):
+            def embed(self, texts):
+                # A global engine lock would leave the first call alone here
+                # until this timeout, instead of admitting the second request.
+                barrier.wait(timeout=2)
+                return super().embed(texts)
+
+        embedder = ConcurrentEmbeddings()
+        engine = RankingEngine(embedder=embedder, cache_path=None)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(engine.rank, [profile()], query(), preferences="вокал")
+            second = executor.submit(engine.rank, [profile()], query(), preferences="юмор")
+            results = [first.result(timeout=3), second.result(timeout=3)]
+        self.assertEqual(len(embedder.calls), 2)
+        self.assertTrue(all(result["ai"]["mode"] == "openai" for result in results))
+
+    def test_concurrent_identical_queries_compute_once_and_keep_fallback(self):
+        entered, release, second_started = Event(), Event(), Event()
+
+        class BlockingFailure(FakeEmbeddings):
+            def embed(self, texts):
+                self.calls.append(list(texts))
+                entered.set()
+                release.wait(2)
+                raise EmbeddingError("Тестовый сбой")
+
+        embedder = BlockingFailure()
+        engine = RankingEngine(embedder=embedder, cache_path=None)
+
+        def repeat():
+            second_started.set()
+            return engine.rank([profile()], query())
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(engine.rank, [profile()], query())
+            try:
+                self.assertTrue(entered.wait(2))
+                second = executor.submit(repeat)
+                self.assertTrue(second_started.wait(2))
+                with self.assertRaises(FutureTimeoutError):
+                    second.result(timeout=0.05)
+            finally:
+                release.set()
+            results = [first.result(timeout=3), second.result(timeout=3)]
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0]["ai"]["mode"], "lexical")
+        self.assertEqual(len(embedder.calls), 1)
+
+    def test_concurrent_engines_keep_first_committed_cache_result(self):
+        barrier = Barrier(2)
+
+        class RacingEmbeddings(FakeEmbeddings):
+            def embed(self, texts):
+                barrier.wait(timeout=2)
+                return super().embed(texts)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "rankings.sqlite3"
+            engines = [RankingEngine(embedder=RacingEmbeddings(failed=failed), cache_path=cache)
+                       for failed in (False, True)]
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(engine.rank, [profile()], query()) for engine in engines]
+                results = [future.result(timeout=3) for future in futures]
+            self.assertEqual(results[0], results[1])
+            restarted = RankingEngine(embedder=ForbiddenEmbeddings(), cache_path=cache)
+            self.assertEqual(restarted.rank([profile()], query()), results[0])
+
     def test_semantic_match_beats_cheaper_unrelated_description(self):
         matching = "Живой вокал и джазовые композиции."
         candidates = [profile(id="cheap", price_from_kzt=10_000, description="Фотобудка."),

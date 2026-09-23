@@ -84,6 +84,7 @@ class RankingEngine:
         self.configuration = "custom" if embedder is not None else ("key" if os.getenv("OPENAI_API_KEY") else "no-key")
         self._memory: dict[str, dict[str, Any]] = {}
         self._lock = RLock()
+        self._query_locks: dict[str, Any] = {}
 
     def _connection(self) -> sqlite3.Connection:
         assert self.cache_path is not None
@@ -159,7 +160,11 @@ class RankingEngine:
         cache_key = hashlib.sha256(json.dumps(key_input, sort_keys=True, ensure_ascii=False,
                                               allow_nan=False).encode("utf-8")).hexdigest()
         ids = {c["id"] for c in pool}
+        # Only identical queries share a network wait. Independent requests must
+        # not queue behind a slow API call; the cache still fixes one result per key.
         with self._lock:
+            query_lock = self._query_locks.setdefault(cache_key, RLock())
+        with query_lock:
             snapshot = self._read(cache_key, ids)
             if snapshot is None:
                 descriptions = [c.get("description", "") for c in pool]
