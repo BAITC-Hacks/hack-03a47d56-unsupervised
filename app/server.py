@@ -8,9 +8,12 @@ Only the local machine can connect by default. The API key stays server-side.
 from __future__ import annotations
 
 import argparse
+import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import socket
+import sys
 from threading import RLock
 from urllib.parse import urlsplit
 
@@ -45,6 +48,17 @@ META = {
     "calendar": {"start": CALENDAR_START.isoformat(), "end": CALENDAR_END.isoformat()},
     "profiles": len(CATALOG),
 }
+
+
+class PreviewServer(ThreadingHTTPServer):
+    """Own the port exclusively so an older demo cannot answer our requests."""
+
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def configured_api_key() -> str:
@@ -179,19 +193,35 @@ class PreviewHandler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": "Произошла ошибка подбора. Попробуйте ещё раз."})
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python main.py serve", description="Local contractor matching website")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=None)
     args = parser.parse_args(argv)
-    server = ThreadingHTTPServer((args.host, args.port), PreviewHandler)
-    print(f"Open http://{args.host}:{args.port}", flush=True)
+    requested_port = 8765 if args.port is None else args.port
+    ports = range(8765, 8776) if args.port is None else (requested_port,)
+    server = None
+    for port in ports:
+        try:
+            server = PreviewServer((args.host, port), PreviewHandler)
+            break
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+    if server is None:
+        print(f"Порт {requested_port} занят. Запустите сервер с --port и свободным номером.", file=sys.stderr)
+        return 2
+    actual_port = server.server_address[1]
+    if actual_port != requested_port:
+        print(f"Порт {requested_port} занят; выбран порт {actual_port}.", flush=True)
+    print(f"Open http://{args.host}:{actual_port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+    return 0
 
 
 if __name__ == "__main__":

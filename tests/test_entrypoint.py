@@ -1,6 +1,7 @@
 """Public command-line entrypoint checks, with no external services."""
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,16 @@ class EntrypointTests(unittest.TestCase):
         self.assertIn("unknown-command", completed.stderr)
         self.assertIn("usage:", completed.stderr.lower())
         self.assertNotIn("Traceback", completed.stderr)
+
+    def test_explicit_busy_port_is_rejected_instead_of_shared(self):
+        with socket.socket() as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen()
+            port = occupied.getsockname()[1]
+            completed = self.run_command("serve", "--port", str(port))
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+        self.assertIn("занят", completed.stderr)
+        self.assertNotIn("Open http://", completed.stdout)
 
 
 if __name__ == "__main__":
