@@ -30,6 +30,8 @@ ASSETS = {
     "/index.html": (ROOT / "web_preview" / "index.html", "text/html; charset=utf-8"),
     "/style.css": (ROOT / "web_preview" / "style.css", "text/css; charset=utf-8"),
     "/app.js": (ROOT / "web_preview" / "app.js", "text/javascript; charset=utf-8"),
+    "/catalog.js": (ROOT / "web_preview" / "catalog.js", "text/javascript; charset=utf-8"),
+    "/hero.png": (ROOT / "web_preview" / "hero.png", "image/png"),
 }
 CATALOG = load_contractors()
 ENGINE = RankingEngine(cache_path=WEB_RANK_CACHE)
@@ -128,6 +130,10 @@ class PreviewHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/meta":
             self.send_json(200, {**META, "ai_available": bool(configured_api_key())})
+        elif path == "/api/catalog":
+            fields = ("id", "anon_name", "categories", "city", "price_from_kzt", "languages",
+                      "event_formats", "max_hours", "description", "synthetic", "city_imputed", "price_imputed")
+            self.send_json(200, {"profiles": [{key: item[key] for key in fields} for item in CATALOG]})
         elif path == "/healthz":
             self.send_json(200, {"status": "ok"})
         elif path in ASSETS:
