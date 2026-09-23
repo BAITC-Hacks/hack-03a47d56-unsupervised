@@ -9,9 +9,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from .paths import DATA_DIR
+
 CALENDAR_START = date(2026, 9, 23)
 CALENDAR_END = date(2026, 12, 31)
-DEFAULT_CSV = Path(__file__).with_name("contractors.csv")
+DEFAULT_CSV = DATA_DIR / "contractors.csv"
 REQUIRED_COLUMNS = (
     "id", "anon_name", "categories", "city", "city_imputed", "synthetic",
     "price_from_kzt", "price_imputed", "event_formats", "languages",

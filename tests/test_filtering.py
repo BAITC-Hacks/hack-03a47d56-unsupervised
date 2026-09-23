@@ -1,4 +1,4 @@
-"""Run: python -m unittest -v test_filtering"""
+"""Run: python -m unittest -v tests.test_filtering"""
 import csv
 import io
 import json
@@ -13,8 +13,8 @@ from copy import deepcopy
 from datetime import date, datetime
 from pathlib import Path
 
-from data_loader import DEFAULT_CSV, DataValidationError, REQUIRED_COLUMNS, load_contractors
-from filtering import RequestValidationError, filter_contractors
+from app.data_loader import DEFAULT_CSV, DataValidationError, REQUIRED_COLUMNS, load_contractors
+from app.filtering import RequestValidationError, filter_contractors
 
 
 def profile(**changes):
@@ -220,8 +220,8 @@ class IntegrationTests(unittest.TestCase):
                     self.assertTrue(item["max_hours"] is None or item["max_hours"] >= 6)
 
     def test_cli_runs_from_another_directory_and_is_deterministic_across_processes(self):
-        script = Path(__file__).with_name("demo_filtering.py").resolve()
-        command = [sys.executable, str(script), "--city", "Алматы", "--category", "Ведущий",
+        script = Path(__file__).resolve().parents[1] / "main.py"
+        command = [sys.executable, str(script), "filter", "--city", "Алматы", "--category", "Ведущий",
                    "--date", "2026-10-01", "--event-type", "свадьба", "--budget", "1000000"]
         outputs = []
         for seed in ("1", "7", "42"):

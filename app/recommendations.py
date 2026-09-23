@@ -1,18 +1,18 @@
-"""Adapter from participant 1's FilterResult to participant 3's UI cards."""
+"""Turn filtered contractors into ranked cards with factual explanations."""
 from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, Mapping
 
-from explainer import generate_explanation, select_description_excerpt
-from scorer import RankingEngine, normalize_preferences
+from .explainer import generate_explanation, select_description_excerpt
+from .scorer import RankingEngine, normalize_preferences
 
 
 def recommend_from_filtered(filtered: Mapping[str, Any], *, preferences: str | None = None,
                             engine: RankingEngine | None = None) -> dict[str, Any]:
     """Keep filtering diagnostics; rank the whole pool, then return up to 3 cards.
 
-    Pass preferences explicitly: gulya's validate_request intentionally preserves
+    Pass preferences explicitly: validate_request intentionally preserves
     only the original seven fields, so filtered['request'] does not retain it.
     """
     result = deepcopy(dict(filtered))

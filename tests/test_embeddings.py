@@ -1,18 +1,21 @@
-"""Offline verification: python -m unittest -v test_embeddings."""
+"""Offline verification: python -m unittest -v tests.test_embeddings."""
 
 import hashlib
 from contextlib import closing
 from http.client import IncompleteRead
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
 import sqlite3
 import tempfile
+from threading import BoundedSemaphore, Event, Thread
+from time import monotonic, sleep
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib import error
 
-from embeddings import EmbeddingError, OpenAIEmbeddings, _NoRedirects
+from app.embeddings import EmbeddingError, OpenAIEmbeddings, _NoRedirects
 
 
 def api_response(vectors):
@@ -25,7 +28,7 @@ class EmbeddingsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.cache = Path(self.temp.name) / "cache.sqlite3"
-        self.transport_patch = patch("embeddings.request.build_opener")
+        self.transport_patch = patch("app.embeddings.request.build_opener")
         self.transport = self.transport_patch.start()
         self.addCleanup(self.transport_patch.stop)
         self.opener = self.transport.return_value
@@ -34,7 +37,7 @@ class EmbeddingsTests(unittest.TestCase):
     def respond(self, payload):
         response = MagicMock()
         response.status = 200
-        response.read.return_value = json.dumps(payload).encode("utf-8")
+        response.read1.side_effect = [json.dumps(payload).encode("utf-8"), b""]
         self.opener.open.return_value.__enter__.return_value = response
         return response
 
@@ -52,7 +55,8 @@ class EmbeddingsTests(unittest.TestCase):
             "model": "text-embedding-3-small", "input": ["ведущий", "музыка"],
             "encoding_format": "float",
         })
-        self.assertEqual(self.opener.open.call_args.kwargs, {"timeout": 6.0})
+        self.assertGreater(self.opener.open.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(self.opener.open.call_args.kwargs["timeout"], 6.0)
         self.assertIsInstance(self.transport.call_args.args[0], _NoRedirects)
         result[0][0] = 9
         self.assertEqual(result[2], [1.0, 0.0])
@@ -126,7 +130,7 @@ class EmbeddingsTests(unittest.TestCase):
 
     def test_malformed_json_is_a_safe_failure(self):
         response = self.respond({})
-        response.read.return_value = b"not json test-key-do-not-leak"
+        response.read1.side_effect = [b"not json test-key-do-not-leak", b""]
         with self.assertRaises(EmbeddingError) as caught:
             self.client.embed(["text"])
         self.assertNotIn("test-key-do-not-leak", str(caught.exception))
@@ -195,6 +199,90 @@ class EmbeddingsTests(unittest.TestCase):
             with self.assertRaises(EmbeddingError):
                 client.embed(["text"])
         self.transport.assert_not_called()
+
+    def test_timed_out_operation_has_no_late_cache_write_or_unbounded_workers(self):
+        slots, release, started = BoundedSemaphore(1), Event(), Event()
+        client = OpenAIEmbeddings(api_key="test-key", cache_path=self.cache, timeout=0.08)
+
+        def stuck_request(texts, deadline):
+            started.set()
+            release.wait(2)
+            return [[1.0, 0.0]]
+
+        with patch("app.embeddings._NETWORK_SLOTS", slots), patch.object(
+                client, "_fetch_before_deadline", side_effect=stuck_request) as fetch:
+            try:
+                beginning = monotonic()
+                with self.assertRaises(EmbeddingError):
+                    client.embed(["first"])
+                self.assertLess(monotonic() - beginning, 0.5)
+                self.assertTrue(started.is_set())
+                # A timed-out OS/network operation still owns its slot. More
+                # traffic must fail immediately without queued work or threads.
+                beginning = monotonic()
+                for index in range(20):
+                    with self.assertRaises(EmbeddingError):
+                        client._fetch([f"overflow {index}"])
+                self.assertLess(monotonic() - beginning, 0.3)
+                self.assertEqual(fetch.call_count, 1)
+            finally:
+                release.set()
+                self.assertTrue(slots.acquire(timeout=2))
+                slots.release()
+        with closing(sqlite3.connect(self.cache)) as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM embeddings").fetchone()[0], 0)
+
+    def test_response_size_limit_also_applies_to_streamed_chunks(self):
+        response = self.respond({})
+        response.read1.side_effect = [b"123", b"456"]
+        with patch("app.embeddings._MAX_RESPONSE_BYTES", 5), self.assertRaises(EmbeddingError):
+            self.client.embed(["text"])
+        self.assertEqual(response.read1.call_count, 2)
+
+
+class NetworkDeadlineTests(unittest.TestCase):
+    def test_header_and_slow_body_share_one_deadline(self):
+        closed = Event()
+
+        class SlowResponse(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                body = json.dumps(api_response([[1, 0]])).encode()
+                try:
+                    sleep(0.15)
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.flush()
+                    # Every individual operation takes less than timeout=0.25,
+                    # but headers + body exceed the total allowed time.
+                    sleep(0.15)
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    closed.set()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), SlowResponse)
+        thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory, patch(
+                    "app.embeddings.EMBEDDINGS_URL", f"http://127.0.0.1:{server.server_port}/embeddings"):
+                client = OpenAIEmbeddings(api_key="test-key", timeout=0.25,
+                                          cache_path=Path(directory) / "cache.sqlite3")
+                beginning = monotonic()
+                with self.assertRaises(EmbeddingError):
+                    client.embed(["deadline probe"])
+                self.assertLess(monotonic() - beginning, 0.45)
+                self.assertTrue(closed.wait(2))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
 if __name__ == "__main__":

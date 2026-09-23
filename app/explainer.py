@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from data_loader import CALENDAR_END, CALENDAR_START, normalize, number, parse_date
+from .data_loader import CALENDAR_END, CALENDAR_START, normalize, number, parse_date
 
 EXCERPT_LIMIT = 180
 _WORDS = re.compile(r"[^\W_]+", re.UNICODE)
@@ -20,6 +20,20 @@ _FEATURES = (
     "стиль", "импровизац", "интерактив", "сценари", "юмор", "квн", "команд",
     "оборудован", "вокал", "танцев", "авторск", "цветочн", "резидент",
     "финалист", "победител", "съем", "съём", "монтаж", "кухн", "вместим",
+    "кадр", "момент", "репертуар", "подач", "язык", "атмосфер",
+)
+_NAME = r"[A-ZА-ЯЁ][\w'’\-]*(?:\s+[A-ZА-ЯЁ][\w'’\-]*)*"
+_ROLE = (
+    r"(?i:(?:(?:свадебн\w*|профессиональн\w*|опытн\w*)\s+)*"
+    r"(?:фотограф|видеограф|ведущ\w*|церемониймейстер|флорист|декоратор|"
+    r"музыкант|вокалист\w*|группа|команда|студия))"
+)
+_BARE_INTRODUCTION = re.compile(
+    # Full-fragment matches avoid dropping a useful sentence merely because
+    # it starts with a name. Brand/role words alone add no service evidence.
+    rf"^(?:(?i:я|мы)\s+(?:[—–-]\s*)?{_NAME}(?:\s*[—–-]\s*{_ROLE})?|"
+    rf"(?:(?i:я|мы)\s+(?:[—–-]\s*)?)?{_ROLE}"
+    rf"(?:\s+(?i:и)\s+{_ROLE})*\s+{_NAME})[.!?]*$"
 )
 
 
@@ -37,9 +51,15 @@ def _matches(word: str, keyword: str) -> bool:
 
 
 def _is_boilerplate(fragment: str) -> bool:
-    """Greetings/contact/signatures are not evidence for user preferences."""
-    lowered = " ".join(fragment.casefold().split()).lstrip("«\"'—- ")
+    """Introductions, contacts and instructions are not service evidence."""
+    text = " ".join(fragment.split()).lstrip("«\"'—–- ")
+    lowered = text.casefold()
     if re.match(r"^(с уважением|с наилучшими пожеланиями)\b", lowered):
+        return True
+    if _BARE_INTRODUCTION.fullmatch(text):
+        return True
+    if re.match(r"^(игнорируй\w*|забудь\w*|не учитывай\w*|"
+                r"ignore\s+(?:all\s+|previous\s+|the\s+)*instructions)\b", lowered):
         return True
     has_details = any(feature in lowered for feature in _FEATURES) or bool(
         re.search(r"\d+\s*(лет|года|свад|гостей|человек|мест)", lowered))

@@ -14,13 +14,21 @@ import math
 import os
 from pathlib import Path
 import sqlite3
+from threading import BoundedSemaphore, Event, Thread
+from time import monotonic
 from urllib import error, request
+
+from .paths import CACHE_DIR
 
 
 DEFAULT_MODEL = "text-embedding-3-small"
-DEFAULT_CACHE_PATH = Path(__file__).resolve().parent / ".cache" / "embeddings.sqlite3"
+DEFAULT_CACHE_PATH = CACHE_DIR / "embeddings.sqlite3"
 EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 _MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+# A stuck OS resolver cannot be cancelled safely with the standard library.
+# Bound outstanding operations, including ones whose caller has timed out, and
+# reject overflow immediately instead of growing threads or a pending queue.
+_NETWORK_SLOTS = BoundedSemaphore(4)
 
 
 class EmbeddingError(Exception):
@@ -58,8 +66,10 @@ class OpenAIEmbeddings:
 
     API configuration comes from OPENAI_API_KEY and OPENAI_EMBEDDING_MODEL unless
     explicitly supplied. No retries are performed. ``timeout`` must be finite and
-    between 0 and 60 seconds. Cache reads/writes are best-effort and contain hashes
-    and vectors only, never the API key or the original text.
+    between 0 and 60 seconds; it bounds the entire network wait, including DNS,
+    headers and body. Up to four network operations may run in this process.
+    Cache reads/writes are best-effort and contain hashes and vectors only, never
+    the API key or the original text.
     """
 
     def __init__(self, api_key=None, model=None, cache_path=None, timeout=6.0):
@@ -139,6 +149,35 @@ class OpenAIEmbeddings:
     def _fetch(self, texts):
         if not self._api_key:
             raise EmbeddingError("Для AI-подбора задайте OPENAI_API_KEY.")
+        deadline = monotonic() + self.timeout
+        if not _NETWORK_SLOTS.acquire(blocking=False):
+            raise EmbeddingError("Сервис эмбеддингов занят: использован резервный подбор.")
+        finished = Event()
+        outcome = {}
+
+        def work():
+            try:
+                outcome["vectors"] = self._fetch_before_deadline(texts, deadline)
+            except Exception as exc:
+                outcome["error"] = exc
+            finally:
+                _NETWORK_SLOTS.release()
+                finished.set()
+
+        try:
+            Thread(target=work, name="embedding-request", daemon=True).start()
+        except RuntimeError:
+            _NETWORK_SLOTS.release()
+            raise EmbeddingError("Не удалось запустить запрос эмбеддингов.") from None
+        if not finished.wait(max(0.0, deadline - monotonic())):
+            # The worker never writes the cache. A late answer cannot replace
+            # the caller's deterministic fallback or leak into future rankings.
+            raise EmbeddingError("Не удалось связаться с OpenAI за отведённое время.")
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome["vectors"]
+
+    def _fetch_before_deadline(self, texts, deadline):
         payload = json.dumps(
             {"model": self.model, "input": texts, "encoding_format": "float"},
             ensure_ascii=False,
@@ -150,11 +189,27 @@ class OpenAIEmbeddings:
             method="POST",
         )
         try:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise EmbeddingError("Не удалось связаться с OpenAI за отведённое время.")
             opener = request.build_opener(_NoRedirects())
-            with opener.open(api_request, timeout=self.timeout) as response:
+            with opener.open(api_request, timeout=remaining) as response:
                 if response.status != 200:
                     raise EmbeddingError("Сервис эмбеддингов OpenAI временно недоступен.")
-                body = response.read(_MAX_RESPONSE_BYTES + 1)
+                chunks, size = [], 0
+                while True:
+                    if monotonic() >= deadline:
+                        raise EmbeddingError("Не удалось связаться с OpenAI за отведённое время.")
+                    # read1 makes at most one socket read. Unlike read(all), it
+                    # lets a slowly trickling body yield for deadline checks.
+                    chunk = response.read1(min(65_536, _MAX_RESPONSE_BYTES + 1 - size))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size > _MAX_RESPONSE_BYTES:
+                        raise EmbeddingError("Ответ OpenAI превышает допустимый размер.")
+                body = b"".join(chunks)
         except error.HTTPError as exc:
             exc.close()
             if exc.code in (401, 403):

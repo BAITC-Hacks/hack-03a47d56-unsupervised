@@ -1,6 +1,6 @@
 """Local browser demo for the contractor recommendation pipeline.
 
-Run: python web_preview_server.py
+Run: python main.py serve
 Open: http://127.0.0.1:8765
 Only the local machine can connect by default. The API key stays server-side.
 """
@@ -11,27 +11,26 @@ import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 from threading import RLock
 from urllib.parse import urlsplit
 
-from data_loader import CALENDAR_END, CALENDAR_START, load_contractors
-from embeddings import EmbeddingError, OpenAIEmbeddings
-from filtering import RequestValidationError, filter_contractors
-from recommendations import recommend_from_filtered
-from scorer import RankingEngine
+from .data_loader import CALENDAR_END, CALENDAR_START, load_contractors
+from .embeddings import EmbeddingError, OpenAIEmbeddings
+from .filtering import RequestValidationError, filter_contractors
+from .recommendations import recommend_from_filtered
+from .scorer import RankingEngine
+from .paths import CACHE_DIR, ENV_FILE, FRONTEND_DIR
 
 
-ROOT = Path(__file__).resolve().parent
-LOCAL_ENV = ROOT / ".env"
-WEB_RANK_CACHE = ROOT / ".cache" / "web_preview_rankings.sqlite3"
+LOCAL_ENV = ENV_FILE
+WEB_RANK_CACHE = CACHE_DIR / "web_preview_rankings.sqlite3"
 ASSETS = {
-    "/": (ROOT / "web_preview" / "index.html", "text/html; charset=utf-8"),
-    "/index.html": (ROOT / "web_preview" / "index.html", "text/html; charset=utf-8"),
-    "/style.css": (ROOT / "web_preview" / "style.css", "text/css; charset=utf-8"),
-    "/app.js": (ROOT / "web_preview" / "app.js", "text/javascript; charset=utf-8"),
-    "/catalog.js": (ROOT / "web_preview" / "catalog.js", "text/javascript; charset=utf-8"),
-    "/hero.png": (ROOT / "web_preview" / "hero.png", "image/png"),
+    "/": (FRONTEND_DIR / "index.html", "text/html; charset=utf-8"),
+    "/index.html": (FRONTEND_DIR / "index.html", "text/html; charset=utf-8"),
+    "/style.css": (FRONTEND_DIR / "style.css", "text/css; charset=utf-8"),
+    "/app.js": (FRONTEND_DIR / "app.js", "text/javascript; charset=utf-8"),
+    "/catalog.js": (FRONTEND_DIR / "catalog.js", "text/javascript; charset=utf-8"),
+    "/hero.png": (FRONTEND_DIR / "hero.png", "image/png"),
 }
 CATALOG = load_contractors()
 ENGINE = RankingEngine(cache_path=WEB_RANK_CACHE)
@@ -111,13 +110,18 @@ def public_result(result: dict) -> dict:
 
 class PreviewHandler(BaseHTTPRequestHandler):
     def send_content(self, status: int, data: bytes, content_type: str) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+        except ConnectionError:
+            # Switching presets aborts the previous browser request. Its result
+            # may still be cached, but there is no client to send an error to.
+            self.close_connection = True
 
     def send_json(self, status: int, payload: dict) -> None:
         self.send_content(
@@ -175,11 +179,11 @@ class PreviewHandler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": "Произошла ошибка подбора. Попробуйте ещё раз."})
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Local contractor matching website")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="python main.py serve", description="Local contractor matching website")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     server = ThreadingHTTPServer((args.host, args.port), PreviewHandler)
     print(f"Open http://{args.host}:{args.port}", flush=True)
     try:

@@ -1,5 +1,6 @@
 """Ranking and UI integration regressions; no API key or network required."""
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
 import os
 from pathlib import Path
@@ -8,16 +9,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from threading import Barrier, Event
 import unittest
 
-from data_loader import load_contractors
-from embeddings import EmbeddingError
-from filtering import filter_contractors
-from recommendations import recommend_from_filtered
-from scorer import RankingEngine, rank_contractors
+from app.data_loader import load_contractors
+from app.embeddings import EmbeddingError
+from app.filtering import filter_contractors
+from app.recommendations import recommend_from_filtered
+from app.scorer import RankingEngine, rank_contractors
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def query(**changes):
@@ -64,6 +66,76 @@ def offline_engine():
 
 
 class RankingTests(unittest.TestCase):
+    def test_independent_queries_do_not_share_a_network_wait(self):
+        barrier = Barrier(2)
+
+        class ConcurrentEmbeddings(FakeEmbeddings):
+            def embed(self, texts):
+                # A global engine lock would leave the first call alone here
+                # until this timeout, instead of admitting the second request.
+                barrier.wait(timeout=2)
+                return super().embed(texts)
+
+        embedder = ConcurrentEmbeddings()
+        engine = RankingEngine(embedder=embedder, cache_path=None)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(engine.rank, [profile()], query(), preferences="вокал")
+            second = executor.submit(engine.rank, [profile()], query(), preferences="юмор")
+            results = [first.result(timeout=3), second.result(timeout=3)]
+        self.assertEqual(len(embedder.calls), 2)
+        self.assertTrue(all(result["ai"]["mode"] == "openai" for result in results))
+
+    def test_concurrent_identical_queries_compute_once_and_keep_fallback(self):
+        entered, release, second_started = Event(), Event(), Event()
+
+        class BlockingFailure(FakeEmbeddings):
+            def embed(self, texts):
+                self.calls.append(list(texts))
+                entered.set()
+                release.wait(2)
+                raise EmbeddingError("Тестовый сбой")
+
+        embedder = BlockingFailure()
+        engine = RankingEngine(embedder=embedder, cache_path=None)
+
+        def repeat():
+            second_started.set()
+            return engine.rank([profile()], query())
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(engine.rank, [profile()], query())
+            try:
+                self.assertTrue(entered.wait(2))
+                second = executor.submit(repeat)
+                self.assertTrue(second_started.wait(2))
+                with self.assertRaises(FutureTimeoutError):
+                    second.result(timeout=0.05)
+            finally:
+                release.set()
+            results = [first.result(timeout=3), second.result(timeout=3)]
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0]["ai"]["mode"], "lexical")
+        self.assertEqual(len(embedder.calls), 1)
+
+    def test_concurrent_engines_keep_first_committed_cache_result(self):
+        barrier = Barrier(2)
+
+        class RacingEmbeddings(FakeEmbeddings):
+            def embed(self, texts):
+                barrier.wait(timeout=2)
+                return super().embed(texts)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "rankings.sqlite3"
+            engines = [RankingEngine(embedder=RacingEmbeddings(failed=failed), cache_path=cache)
+                       for failed in (False, True)]
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(engine.rank, [profile()], query()) for engine in engines]
+                results = [future.result(timeout=3) for future in futures]
+            self.assertEqual(results[0], results[1])
+            restarted = RankingEngine(embedder=ForbiddenEmbeddings(), cache_path=cache)
+            self.assertEqual(restarted.rank([profile()], query()), results[0])
+
     def test_semantic_match_beats_cheaper_unrelated_description(self):
         matching = "Живой вокал и джазовые композиции."
         candidates = [profile(id="cheap", price_from_kzt=10_000, description="Фотобудка."),
@@ -113,10 +185,10 @@ class RankingTests(unittest.TestCase):
             self.assertEqual(restarted.rank(candidates, query(), preferences="Живой вокал"), first)
             script = """
 import json, sys
-from data_loader import load_contractors
-from filtering import filter_contractors
-from scorer import RankingEngine
-from test_ranking import ForbiddenEmbeddings, query
+from app.data_loader import load_contractors
+from app.filtering import filter_contractors
+from app.scorer import RankingEngine
+from tests.test_ranking import ForbiddenEmbeddings, query
 pool = filter_contractors(load_contractors(), query())["candidates"]
 result = RankingEngine(embedder=ForbiddenEmbeddings(), cache_path=sys.argv[1]).rank(
     pool, query(), preferences="Живой вокал")
@@ -279,10 +351,12 @@ class RecommendationIntegrationTests(unittest.TestCase):
 
     def test_offline_cli_json_is_identical_across_processes_and_hash_seeds(self):
         with tempfile.TemporaryDirectory() as directory:
-            for name in ("data_loader.py", "filtering.py", "embeddings.py", "scorer.py", "explainer.py",
-                         "recommendations.py", "demo_ranking.py", "contractors.csv"):
-                shutil.copy2(ROOT / name, Path(directory) / name)
-            command = [sys.executable, "-X", "utf8", "demo_ranking.py", "--city", "Алматы",
+            project = Path(directory) / "project"
+            project.mkdir()
+            shutil.copy2(ROOT / "main.py", project / "main.py")
+            shutil.copytree(ROOT / "app", project / "app", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "data", project / "data")
+            command = [sys.executable, "-X", "utf8", str(project / "main.py"), "recommend", "--city", "Алматы",
                        "--date", "2026-09-23", "--event-type", "свадьба", "--category", "Ведущий",
                        "--budget", "2000000", "--preferences", "юмор и импровизация", "--offline"]
             outputs = []
@@ -296,6 +370,8 @@ class RecommendationIntegrationTests(unittest.TestCase):
             result = json.loads(outputs[0])
             self.assertEqual(result["ai"]["mode"], "lexical")
             self.assertEqual(len(result["cards"]), 3)
+            self.assertTrue((project / ".cache" / "ranking.sqlite3").is_file())
+            self.assertFalse((Path(directory) / ".cache").exists())
 
 
 if __name__ == "__main__":

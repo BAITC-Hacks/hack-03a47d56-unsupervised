@@ -4,7 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Iterable, Mapping
 
-from data_loader import CALENDAR_END, CALENDAR_START, normalize, number, parse_date
+from .data_loader import CALENDAR_END, CALENDAR_START, normalize, number, parse_date
 
 REASON_LABELS = {
     "busy_date": "заняты на выбранную дату",
