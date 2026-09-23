@@ -36,6 +36,21 @@ def _matches(word: str, keyword: str) -> bool:
         len(keyword) == 4 and word.startswith(keyword))
 
 
+def _is_boilerplate(fragment: str) -> bool:
+    """Greetings/contact/signatures are not evidence for user preferences."""
+    lowered = " ".join(fragment.casefold().split()).lstrip("«\"'—- ")
+    if re.match(r"^(с уважением|с наилучшими пожеланиями)\b", lowered):
+        return True
+    has_details = any(feature in lowered for feature in _FEATURES) or bool(
+        re.search(r"\d+\s*(лет|года|свад|гостей|человек|мест)", lowered))
+    if has_details:
+        return False
+    return bool(re.match(
+        r"^(привет\w*|здравствуй\w*|всем привет|добрый день|доброго дня|"
+        r"дорогие друзья|меня зовут|связаться со мной|пишите|звоните|"
+        r"более подробн\w* информац\w*|подробности|контакты)\b", lowered))
+
+
 def _clip(fragment: str) -> str:
     fragment = fragment.strip()
     if len(fragment) > EXCERPT_LIMIT:
@@ -57,6 +72,8 @@ def select_description_excerpt(description: str, preferences: str = "") -> str:
     keywords = _tokens(preferences) if isinstance(preferences, str) else set()
     fragments: list[str] = []
     for sentence in re.split(r"(?<=[.!?])\s+|[•\r\n]+", description):
+        if _is_boilerplate(sentence):
+            continue
         fragment = _clip(sentence)
         if fragment:
             fragments.append(fragment)

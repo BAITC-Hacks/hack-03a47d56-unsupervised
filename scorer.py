@@ -19,7 +19,7 @@ from embeddings import EmbeddingError, OpenAIEmbeddings
 from filtering import filter_contractors, validate_request
 
 DEFAULT_RANK_CACHE = Path(__file__).parent / ".cache" / "ranking.sqlite3"
-RANKING_VERSION = "1"
+RANKING_VERSION = "2"
 STOP_WORDS = set("для это как что или при без под над все ваш вас вам нас наш мне мой мои мероприятия мероприятие нужен нужна нужно хочу".split())
 
 
@@ -180,6 +180,7 @@ class RankingEngine:
                             similarities[index] = max(0.0, cosine_similarity(vectors[0], vector))
                         used_mode, reason = "openai", "Описания сравниваются с запросом через эмбеддинги OpenAI."
                     except EmbeddingError:
+                        similarities = None  # Discard any scores computed before the failure.
                         reason = "AI недоступен: использованы совпадения по словам; результат сохранён для повторного запроса."
                 if similarities is None:
                     similarities = [lexical_similarity(query_text, text) for text in descriptions]

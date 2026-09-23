@@ -87,6 +87,41 @@ class ExplanationTests(unittest.TestCase):
         self.assertIn("«Сценарий с интерактивами»", generate_explanation(
             profile(description=description), query(preferences="вокал"), {"preferences": "сценарий"}))
 
+    def test_greetings_contact_and_signoffs_cannot_win_keyword_match(self):
+        description = ("Приветствую всех, дорогие друзья! Меня зовут Анна. "
+                       "Более подробную информацию можно получить по телефону. "
+                       "Импровизация и живой юмор. С уважением, Анна")
+        for preference in ("приветствие", "зовут", "информация", "уважение"):
+            with self.subTest(preference=preference):
+                self.assertEqual(select_description_excerpt(description, preference),
+                                 "Импровизация и живой юмор")
+        self.assertEqual(select_description_excerpt("Привет! С уважением, Анна", "уважение"), "")
+
+    def test_greeting_with_substantive_source_facts_can_still_be_used(self):
+        description = "Меня зовут Анна, работаю с джазовым вокалом 12 лет."
+        self.assertEqual(select_description_excerpt(description, "вокал"), description[:-1])
+
+    def test_real_profile_signoff_does_not_count_as_respect_for_traditions(self):
+        preferences = "спокойный стиль, европейская подача и уважение к традициям"
+        request = query(date="2026-09-23", budget=2_000_000, language=None,
+                        duration_hours=None, preferences=preferences)
+        candidates = filter_contractors(load_contractors(), request)["candidates"]
+        excerpts = {}
+        for candidate in candidates:
+            excerpt = select_description_excerpt(candidate["description"], preferences)
+            self.assertTrue(excerpt)
+            self.assertIn(excerpt, candidate["description"])
+            self.assertNotIn("С Уважением", excerpt)
+            explanation = generate_explanation(candidate, request)
+            self.assertIn(excerpt, explanation)
+            self.assertNotIn("С Уважением", explanation)
+            excerpts[candidate["id"]] = excerpt
+        self.assertEqual(excerpts["HK-44923"], "Импровизация, живой интеллигентный юмор")
+        self.assertIn("европейская подача", excerpts["HK-27222"])
+        self.assertIn("13 лет", excerpts["HK-42352"])
+        self.assertIn("Стиль ведения", excerpts["HK-72938"])
+        self.assertEqual(len(set(excerpts.values())), 4)
+
     def test_long_excerpts_preserve_substring_and_word_boundary(self):
         description = "Веду мероприятия " * 25 + "Вокал и выступления с джазовым ансамблем " * 12
         excerpt = select_description_excerpt(description, "джазовым ансамблем")

@@ -127,6 +127,32 @@ print(json.dumps(result, ensure_ascii=False))
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(json.loads(completed.stdout), first)
 
+    def test_invalid_later_vector_falls_back_for_entire_pool_and_persists(self):
+        class InvalidLaterEmbeddings(FakeEmbeddings):
+            def embed(self, texts):
+                vectors = super().embed(texts)
+                vectors[2] = [1.0]  # Fail after the first similarity was computed.
+                return vectors
+
+        candidates = [profile(id="A", description="Фотобудка."),
+                      profile(id="B", description="Ведущий на свадьбу."),
+                      profile(id="C", description=""),
+                      profile(id="D", description="Джазовый вокал.")]
+        preferences = "Джазовый вокал"
+        expected = offline_engine().rank(candidates, query(), preferences=preferences)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rankings.sqlite3"
+            embedder = InvalidLaterEmbeddings([candidates[0]["description"]])
+            engine = RankingEngine(embedder=embedder, cache_path=path)
+            result = engine.rank(candidates, query(), preferences=preferences)
+            self.assertEqual(result["ai"]["mode"], "lexical")
+            self.assertIsNone(result["ai"]["model"])
+            self.assertEqual(result["ranked"], expected["ranked"])
+            self.assertEqual(engine.rank(candidates, query(), preferences=preferences), result)
+            self.assertEqual(len(embedder.calls), 1)
+            restarted = RankingEngine(embedder=ForbiddenEmbeddings(), cache_path=path)
+            self.assertEqual(restarted.rank(candidates, query(), preferences=preferences), result)
+
     def test_description_and_preferences_changes_invalidate_cached_ranking(self):
         embedder = FakeEmbeddings()
         with tempfile.TemporaryDirectory() as directory:
