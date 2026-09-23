@@ -3,15 +3,15 @@ import argparse
 import json
 import sys
 
-from data_loader import DEFAULT_CSV, DataValidationError, load_contractors
-from embeddings import EmbeddingError
-from filtering import RequestValidationError, filter_contractors
-from recommendations import recommend_from_filtered
-from scorer import RankingEngine
+from ..data_loader import DEFAULT_CSV, DataValidationError, load_contractors
+from ..embeddings import EmbeddingError
+from ..filtering import RequestValidationError, filter_contractors
+from ..recommendations import recommend_from_filtered
+from ..scorer import RankingEngine
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python main.py recommend", description=__doc__)
     parser.add_argument("--csv", default=str(DEFAULT_CSV))
     parser.add_argument("--city", required=True)
     parser.add_argument("--date", required=True)
@@ -24,7 +24,7 @@ def main() -> int:
     parser.add_argument("--offline", action="store_true", help="Сравнение по словам без API")
     parser.add_argument("--require-ai", action="store_true", help="Код 3, если вместо AI использован fallback")
     parser.add_argument("--warm-cache", action="store_true", help="Сначала подготовить эмбеддинги всего каталога")
-    args = vars(parser.parse_args())
+    args = vars(parser.parse_args(argv))
     try:
         catalog = load_contractors(args.pop("csv"))
         offline, require_ai, warm_cache = args.pop("offline"), args.pop("require_ai"), args.pop("warm_cache")

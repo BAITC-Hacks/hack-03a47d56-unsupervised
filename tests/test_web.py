@@ -1,15 +1,16 @@
 """Exercise the browser's HTTP contract without API keys or external services."""
 import json
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from embeddings import EmbeddingError
-from scorer import RankingEngine
-import web_preview_server as app
+from app.embeddings import EmbeddingError
+from app.scorer import RankingEngine
+from app import server as app
 
 
 class UnavailableEmbeddings:
@@ -115,6 +116,30 @@ class WebPreviewTests(unittest.TestCase):
         status, result = self.post({"preferences": ["стиль"]})
         self.assertEqual(status, 400)
         self.assertIn("preferences", result["error"])
+
+    def test_static_frontend_files_are_served_from_the_project_directory(self):
+        frontend = Path(__file__).resolve().parents[1] / "frontend"
+        for route, filename, content_type in (
+            ("/", "index.html", "text/html"),
+            ("/index.html", "index.html", "text/html"),
+            ("/style.css", "style.css", "text/css"),
+            ("/app.js", "app.js", "text/javascript"),
+        ):
+            with self.subTest(route=route), urlopen(self.url + route, timeout=3) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers.get_content_type(), content_type)
+                self.assertEqual(response.read(), (frontend / filename).read_bytes())
+
+    def test_catalog_metadata_uses_the_relocated_dataset(self):
+        with patch.object(app, "configured_api_key", return_value=""):
+            with urlopen(self.url + "/api/meta", timeout=3) as response:
+                self.assertEqual(response.status, 200)
+                metadata = json.load(response)
+        self.assertEqual(metadata["profiles"], 66)
+        self.assertEqual(set(metadata["cities"]), {"Алматы", "Астана", "Зарубежье"})
+        self.assertIn("Банкетный зал", metadata["categories"])
+        self.assertEqual(metadata["calendar"], {"start": "2026-09-23", "end": "2026-12-31"})
+        self.assertFalse(metadata["ai_available"])
 
 
 if __name__ == "__main__":

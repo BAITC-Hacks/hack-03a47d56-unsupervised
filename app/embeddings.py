@@ -18,9 +18,11 @@ from threading import BoundedSemaphore, Event, Thread
 from time import monotonic
 from urllib import error, request
 
+from .paths import CACHE_DIR
+
 
 DEFAULT_MODEL = "text-embedding-3-small"
-DEFAULT_CACHE_PATH = Path(__file__).resolve().parent / ".cache" / "embeddings.sqlite3"
+DEFAULT_CACHE_PATH = CACHE_DIR / "embeddings.sqlite3"
 EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 _MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 # A stuck OS resolver cannot be cancelled safely with the standard library.

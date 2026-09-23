@@ -1,11 +1,11 @@
-"""Grounding and contract checks: python -m unittest -v test_explainer."""
+"""Grounding and contract checks: python -m unittest -v tests.test_explainer."""
 from copy import deepcopy
 from datetime import date
 import unittest
 
-from data_loader import load_contractors
-from explainer import EXCERPT_LIMIT, generate_explanation, select_description_excerpt
-from filtering import filter_contractors
+from app.data_loader import load_contractors
+from app.explainer import EXCERPT_LIMIT, generate_explanation, select_description_excerpt
+from app.filtering import filter_contractors
 
 
 def profile(**changes):

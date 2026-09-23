@@ -12,14 +12,14 @@ import tempfile
 from threading import Barrier, Event
 import unittest
 
-from data_loader import load_contractors
-from embeddings import EmbeddingError
-from filtering import filter_contractors
-from recommendations import recommend_from_filtered
-from scorer import RankingEngine, rank_contractors
+from app.data_loader import load_contractors
+from app.embeddings import EmbeddingError
+from app.filtering import filter_contractors
+from app.recommendations import recommend_from_filtered
+from app.scorer import RankingEngine, rank_contractors
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def query(**changes):
@@ -185,10 +185,10 @@ class RankingTests(unittest.TestCase):
             self.assertEqual(restarted.rank(candidates, query(), preferences="Живой вокал"), first)
             script = """
 import json, sys
-from data_loader import load_contractors
-from filtering import filter_contractors
-from scorer import RankingEngine
-from test_ranking import ForbiddenEmbeddings, query
+from app.data_loader import load_contractors
+from app.filtering import filter_contractors
+from app.scorer import RankingEngine
+from tests.test_ranking import ForbiddenEmbeddings, query
 pool = filter_contractors(load_contractors(), query())["candidates"]
 result = RankingEngine(embedder=ForbiddenEmbeddings(), cache_path=sys.argv[1]).rank(
     pool, query(), preferences="Живой вокал")
@@ -351,10 +351,12 @@ class RecommendationIntegrationTests(unittest.TestCase):
 
     def test_offline_cli_json_is_identical_across_processes_and_hash_seeds(self):
         with tempfile.TemporaryDirectory() as directory:
-            for name in ("data_loader.py", "filtering.py", "embeddings.py", "scorer.py", "explainer.py",
-                         "recommendations.py", "demo_ranking.py", "contractors.csv"):
-                shutil.copy2(ROOT / name, Path(directory) / name)
-            command = [sys.executable, "-X", "utf8", "demo_ranking.py", "--city", "Алматы",
+            project = Path(directory) / "project"
+            project.mkdir()
+            shutil.copy2(ROOT / "main.py", project / "main.py")
+            shutil.copytree(ROOT / "app", project / "app", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "data", project / "data")
+            command = [sys.executable, "-X", "utf8", str(project / "main.py"), "recommend", "--city", "Алматы",
                        "--date", "2026-09-23", "--event-type", "свадьба", "--category", "Ведущий",
                        "--budget", "2000000", "--preferences", "юмор и импровизация", "--offline"]
             outputs = []
@@ -368,6 +370,8 @@ class RecommendationIntegrationTests(unittest.TestCase):
             result = json.loads(outputs[0])
             self.assertEqual(result["ai"]["mode"], "lexical")
             self.assertEqual(len(result["cards"]), 3)
+            self.assertTrue((project / ".cache" / "ranking.sqlite3").is_file())
+            self.assertFalse((Path(directory) / ".cache").exists())
 
 
 if __name__ == "__main__":

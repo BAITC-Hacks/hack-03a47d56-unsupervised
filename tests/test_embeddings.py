@@ -1,4 +1,4 @@
-"""Offline verification: python -m unittest -v test_embeddings."""
+"""Offline verification: python -m unittest -v tests.test_embeddings."""
 
 import hashlib
 from contextlib import closing
@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib import error
 
-from embeddings import EmbeddingError, OpenAIEmbeddings, _NoRedirects
+from app.embeddings import EmbeddingError, OpenAIEmbeddings, _NoRedirects
 
 
 def api_response(vectors):
@@ -28,7 +28,7 @@ class EmbeddingsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.cache = Path(self.temp.name) / "cache.sqlite3"
-        self.transport_patch = patch("embeddings.request.build_opener")
+        self.transport_patch = patch("app.embeddings.request.build_opener")
         self.transport = self.transport_patch.start()
         self.addCleanup(self.transport_patch.stop)
         self.opener = self.transport.return_value
@@ -209,7 +209,7 @@ class EmbeddingsTests(unittest.TestCase):
             release.wait(2)
             return [[1.0, 0.0]]
 
-        with patch("embeddings._NETWORK_SLOTS", slots), patch.object(
+        with patch("app.embeddings._NETWORK_SLOTS", slots), patch.object(
                 client, "_fetch_before_deadline", side_effect=stuck_request) as fetch:
             try:
                 beginning = monotonic()
@@ -235,7 +235,7 @@ class EmbeddingsTests(unittest.TestCase):
     def test_response_size_limit_also_applies_to_streamed_chunks(self):
         response = self.respond({})
         response.read1.side_effect = [b"123", b"456"]
-        with patch("embeddings._MAX_RESPONSE_BYTES", 5), self.assertRaises(EmbeddingError):
+        with patch("app.embeddings._MAX_RESPONSE_BYTES", 5), self.assertRaises(EmbeddingError):
             self.client.embed(["text"])
         self.assertEqual(response.read1.call_count, 2)
 
@@ -271,7 +271,7 @@ class NetworkDeadlineTests(unittest.TestCase):
         thread.start()
         try:
             with tempfile.TemporaryDirectory() as directory, patch(
-                    "embeddings.EMBEDDINGS_URL", f"http://127.0.0.1:{server.server_port}/embeddings"):
+                    "app.embeddings.EMBEDDINGS_URL", f"http://127.0.0.1:{server.server_port}/embeddings"):
                 client = OpenAIEmbeddings(api_key="test-key", timeout=0.25,
                                           cache_path=Path(directory) / "cache.sqlite3")
                 beginning = monotonic()

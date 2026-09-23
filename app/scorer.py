@@ -1,4 +1,4 @@
-"""Deterministic ranking of the complete eligible pool (participant 2)."""
+"""Deterministic ranking of the complete eligible contractor pool."""
 from __future__ import annotations
 
 from collections import Counter
@@ -14,11 +14,12 @@ import sqlite3
 from threading import RLock
 from typing import Any, Iterable, Mapping
 
-from data_loader import normalize
-from embeddings import EmbeddingError, OpenAIEmbeddings
-from filtering import filter_contractors, validate_request
+from .data_loader import normalize
+from .embeddings import EmbeddingError, OpenAIEmbeddings
+from .filtering import filter_contractors, validate_request
+from .paths import CACHE_DIR
 
-DEFAULT_RANK_CACHE = Path(__file__).parent / ".cache" / "ranking.sqlite3"
+DEFAULT_RANK_CACHE = CACHE_DIR / "ranking.sqlite3"
 RANKING_VERSION = "2"
 STOP_WORDS = set("для это как что или при без под над все ваш вас вам нас наш мне мой мои мероприятия мероприятие нужен нужна нужно хочу".split())
 
@@ -145,7 +146,7 @@ class RankingEngine:
         query = validate_request(request)
         wishes = normalize_preferences(request.get("preferences") if preferences is None else preferences)
         pool = sorted((deepcopy(dict(c)) for c in candidates), key=lambda c: c["id"])
-        # Reuse participant 1's rules to catch incorrect integration at the boundary.
+        # Reuse the strict filter to validate the ranking boundary.
         verified = filter_contractors(pool, query)
         if len(verified["candidates"]) != len(pool):
             raise ValueError("Ранжированию нужно передать только прошедших фильтр candidates.")

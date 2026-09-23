@@ -1,14 +1,14 @@
-"""CLI for participant 1; outputs eligible candidates, not a final top-3."""
+"""CLI for strict filtering; outputs all eligible candidates before ranking."""
 import argparse
 import json
 import sys
 
-from data_loader import DEFAULT_CSV, DataValidationError, load_contractors
-from filtering import RequestValidationError, filter_contractors
+from ..data_loader import DEFAULT_CSV, DataValidationError, load_contractors
+from ..filtering import RequestValidationError, filter_contractors
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python main.py filter", description=__doc__)
     parser.add_argument("--csv", default=str(DEFAULT_CSV))
     parser.add_argument("--city", required=True)
     parser.add_argument("--date", required=True)
@@ -17,7 +17,7 @@ def main() -> int:
     parser.add_argument("--budget", required=True)
     parser.add_argument("--duration-hours")
     parser.add_argument("--language")
-    args = vars(parser.parse_args())
+    args = vars(parser.parse_args(argv))
     try:
         contractors = load_contractors(args.pop("csv"))
         result = filter_contractors(contractors, args)

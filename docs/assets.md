@@ -1,6 +1,8 @@
 # Hero image
 
-File: `hero.png`. Generated using the built-in imagegen tool on 2026-09-23. Used only as atmospheric artwork on the home page; not presented as an actual contractor's portfolio. No external image or font requests are needed at runtime.
+File: [`frontend/hero.png`](../frontend/hero.png). Generated using the built-in imagegen tool on 2026-09-23 as atmospheric artwork for the home page; it is not an actual contractor's portfolio. The file is retained in the repository, but the current `frontend/index.html` and `frontend/style.css` do not reference it. The current hero artwork is drawn with HTML/CSS. No external image or font requests are needed at runtime.
+
+Run the site from the project root with `python main.py` or `python main.py serve`. The server in `app/server.py` serves the frontend files; resource paths are defined in `app/paths.py`. See the [README](../README.md) for setup and usage.
 
 ## Final prompt
 

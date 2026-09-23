@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from data_loader import CALENDAR_END, CALENDAR_START, normalize, number, parse_date
+from .data_loader import CALENDAR_END, CALENDAR_START, normalize, number, parse_date
 
 EXCERPT_LIMIT = 180
 _WORDS = re.compile(r"[^\W_]+", re.UNICODE)
