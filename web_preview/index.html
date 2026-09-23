@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#122238">
+  <title>Подбор подрядчиков — интерактивное демо</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <div class="brand" aria-label="Подбор подрядчиков">
+        <span class="brand-symbol" aria-hidden="true">✦</span>
+        <span>подбор<span class="brand-dot">.</span></span>
+      </div>
+      <span class="header-tag">интерактивное демо</span>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">УМНЫЙ ПОДБОР ДЛЯ МЕРОПРИЯТИЙ</p>
+        <h1 id="page-title">Найдите тех, кто подходит <em>именно вам.</em></h1>
+        <p class="hero-description">Расскажите о событии — мы проверим доступность и условия, затем покажем до трёх подрядчиков с конкретными причинами выбора.</p>
+        <div class="hero-meta">
+          <span id="catalog-summary">Загружаем каталог…</span>
+          <span class="hero-meta-divider" aria-hidden="true"></span>
+          <span id="ai-availability">Проверяем режим подбора…</span>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <div class="hero-card hero-card-back"><span></span><span></span><span></span></div>
+        <div class="hero-card hero-card-front"><div class="hero-card-star">✦</div><span></span><span></span><span></span></div>
+        <div class="hero-check">✓</div>
+      </div>
+    </section>
+
+    <section class="examples" aria-labelledby="examples-title">
+      <div class="section-topline">
+        <div>
+          <p class="section-kicker">БЫСТРЫЙ СТАРТ</p>
+          <h2 id="examples-title">Попробуйте готовый сценарий</h2>
+        </div>
+        <p>Нажатие заполнит форму и сразу покажет результат</p>
+      </div>
+      <div id="preset-list" class="preset-list" aria-label="Готовые запросы"></div>
+    </section>
+
+    <main class="workspace">
+      <section class="panel form-panel" aria-labelledby="request-title">
+        <div class="panel-heading">
+          <span class="step-number">01</span>
+          <div>
+            <p class="section-kicker">ВАШ ЗАПРОС</p>
+            <h2 id="request-title">Расскажите о событии</h2>
+          </div>
+        </div>
+        <form id="request-form">
+          <fieldset id="request-fields" disabled>
+            <div class="field-row">
+              <label class="field">
+                <span>Город <span class="required">*</span></span>
+                <select id="city" name="city" required></select>
+              </label>
+              <label class="field">
+                <span>Дата мероприятия <span class="required">*</span></span>
+                <input id="date" name="date" type="date" required>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Тип мероприятия <span class="required">*</span></span>
+                <select id="event-type" name="event_type" required></select>
+              </label>
+              <label class="field">
+                <span>Категория <span class="required">*</span></span>
+                <select id="category" name="category" required></select>
+              </label>
+            </div>
+            <label class="field">
+              <span>Бюджет, ₸ <span class="required">*</span></span>
+              <input id="budget" name="budget" type="number" min="0" max="100000000" step="1" inputmode="numeric" placeholder="Например, 1 000 000" required>
+            </label>
+            <div class="optional-divider"><span>Дополнительные пожелания</span></div>
+            <div class="field-row">
+              <label class="field">
+                <span>Язык работы</span>
+                <select id="language" name="language"></select>
+              </label>
+              <label class="field">
+                <span>Длительность, часов</span>
+                <input id="duration" name="duration_hours" type="number" min="1" max="48" step="0.5" inputmode="decimal" placeholder="Неважно">
+              </label>
+            </div>
+            <label class="field">
+              <span>Что важно в стиле работы?</span>
+              <textarea id="preferences" name="preferences" rows="4" maxlength="2000" placeholder="Например: спокойная подача, лёгкий юмор и уважение к традициям"></textarea>
+              <small>Напишите своими словами, какой результат вы хотите получить.</small>
+            </label>
+            <button id="submit-button" class="primary-button" type="submit">
+              <span>Подобрать подрядчиков</span><span aria-hidden="true">↗</span>
+            </button>
+          </fieldset>
+        </form>
+      </section>
+
+      <section class="panel result-panel" aria-labelledby="result-title">
+        <div class="panel-heading">
+          <span class="step-number">02</span>
+          <div>
+            <p class="section-kicker">ПОДБОРКА</p>
+            <h2 id="result-title">Результат</h2>
+          </div>
+        </div>
+        <div id="result-content" class="result-content" aria-live="polite">
+          <div class="initial-state">
+            <div class="initial-icon" aria-hidden="true">✧</div>
+            <h3>Начните с вашего события</h3>
+            <p>Заполните форму или выберите пример выше. Здесь появятся подходящие подрядчики и причины выбора.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Анонимизированный каталог подрядчиков Казахстана</span>
+      <span>Рекомендации без бронирования</span>
+    </footer>
+  </div>
+</body>
+</html>
