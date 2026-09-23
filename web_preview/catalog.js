@@ -104,8 +104,8 @@ async function loadCatalog() {
     const response = await fetch('/api/catalog');
     if (!response.ok) throw new Error('Catalog unavailable');
     profiles = (await response.json()).profiles;
-    $('profile-total').textContent = profiles.length;
-    $('category-total').textContent = new Set(profiles.flatMap(p => p.categories)).size;
+    if ($('profile-total')) $('profile-total').textContent = profiles.length;
+    if ($('category-total')) $('category-total').textContent = new Set(profiles.flatMap(p => p.categories)).size;
     for (const [category, label, path] of categoryArt) {
       const tile = node('button', undefined, 'category-tile');
       tile.type = 'button';
